@@ -12,3 +12,5 @@ include_directories(./ ./utility ${ARDUINO_MEGA_ROOT}/hardware/arduino/avr/libra
 
 add_library(WIZ STATIC ${SOURCE_FILES})
 
+target_compile_definitions(WIZ PRIVATE ARDUINO_ARCH_AVR=1)
+

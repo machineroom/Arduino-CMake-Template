@@ -21,7 +21,8 @@ set(CMAKE_CXX_FLAGS "-mmcu=${ARDUINO_MEGA_MCU} -DF_CPU=${ARDUINO_MEGA_FCPU} -Os"
 set(CMAKE_C_FLAGS "${CMAKE_CXX_FLAGS} ${TUNNING_FLAGS} -Wall -Wstrict-prototypes -std=gnu99")
 set(CMAKE_ASM_FLAGS "${CMAKE_C_FLAGS}")
 
-set(ARDUINO_MEGA_CORE_DIR "${ARDUINO_MEGA_ROOT}/hardware/arduino/avr/cores/arduino/")
+set(ARDUINO_MEGA_LIB_DIR "${ARDUINO_MEGA_ROOT}/hardware/arduino/avr/libraries")
+set(ARDUINO_MEGA_CORE_DIR "${ARDUINO_MEGA_ROOT}/hardware/arduino/avr/cores/arduino")
 set(ARDUINO_MEGA_PINS_DIR "${ARDUINO_MEGA_ROOT}/hardware/arduino/avr/variants/${ARDUINO_MEGA_BOARD}")
 set(ARDUINO_MEGA_PINS_DIR "${ARDUINO_MEGA_ROOT}/hardware/arduino/avr/variants/${ARDUINO_MEGA_BOARD}")
 set(ARDUINO_MEGA_AVR_DIR "${ARDUINO_MEGA_ROOT}/hardware/tools/avr/avr/include")
@@ -53,6 +54,7 @@ set(ARDUINO_MEGA_SOURCE_FILES
 	${ARDUINO_MEGA_CORE_DIR}/USBCore.cpp
 	${ARDUINO_MEGA_CORE_DIR}/Stream.cpp
 	${ARDUINO_MEGA_CORE_DIR}/CDC.cpp
+	${ARDUINO_MEGA_LIB_DIR}/SPI/src/SPI.cpp
 )
 
 add_library(core STATIC  ${ARDUINO_MEGA_SOURCE_FILES})
@@ -72,7 +74,7 @@ macro(arduino TARGET_NAME TARGET_SOURCE_FILES TARGET_LIBS)
 
   add_custom_command(TARGET ${TARGET_NAME}.elf POST_BUILD
     COMMAND ${CMAKE_CXX_COMPILER}  -w -Os -Wl,--gc-sections -mmcu=${ARDUINO_MEGA_MCU} -o ${LIBRARY_OUTPUT_PATH}/${TARGET_NAME}.elf 
-             -L${LIBRARY_OUTPUT_PATH} -l${TARGET_NAME} -lm -lcore -l${TARGET_LIBS}
+             -L${LIBRARY_OUTPUT_PATH} -Wl,--start-group -l${TARGET_NAME} -lm -lcore -l${TARGET_LIBS} -Wl,--end-group
   )
   
 
