@@ -19,6 +19,7 @@ set(TUNNING_FLAGS "-funsigned-char -funsigned-bitfields -fpack-struct -fshort-en
 
 set(CMAKE_CXX_FLAGS "-mmcu=${ARDUINO_MEGA_MCU} -DF_CPU=${ARDUINO_MEGA_FCPU} -Os")
 set(CMAKE_C_FLAGS "${CMAKE_CXX_FLAGS} ${TUNNING_FLAGS} -Wall -Wstrict-prototypes -std=gnu99")
+set(CMAKE_ASM_FLAGS "${CMAKE_C_FLAGS}")
 
 set(ARDUINO_MEGA_CORE_DIR "${ARDUINO_MEGA_ROOT}/hardware/arduino/avr/cores/arduino/")
 set(ARDUINO_MEGA_PINS_DIR "${ARDUINO_MEGA_ROOT}/hardware/arduino/avr/variants/${ARDUINO_MEGA_BOARD}")
@@ -61,41 +62,31 @@ if (NOT PORT)
     set(PORT ${ARDUINO_MEGA_PORT})
 endif()
 
-add_custom_target(reset_mega)
-add_custom_command(TARGET reset POST_BUILD
-    COMMAND echo 0 > ${PORT}
-)
+macro(arduino TARGET_NAME TARGET_SOURCE_FILES TARGET_LIBS)
 
-macro(arduino TRAGET_NAME TRAGET_SOURCE_FILES)
+  add_library(${TARGET_NAME} STATIC ${SOURCE_FILES})
+  target_link_libraries (${TARGET_NAME} ${TARGET_LIBS})
+  
+  add_custom_target(${TARGET_NAME}.elf )
+  add_dependencies(${TARGET_NAME}.elf core ${TARGET_NAME})
 
-  #add_library(${TRAGET_NAME} STATIC ${TRAGET_SOURCE_FILES})
-  #add_dependencies(${TRAGET_NAME} core)
-  
-  #add_executable(${TRAGET_NAME}.elf  ${TRAGET_SOURCE_FILES})
-  #add_dependencies(${TRAGET_NAME}.elf core)
-  
-  
-  add_library(${TRAGET_NAME} STATIC ${SOURCE_FILES})
-  
-  add_custom_target(${TRAGET_NAME}.elf )
-  add_dependencies(${TRAGET_NAME}.elf core ${TRAGET_NAME})
-
-  add_custom_command(TARGET ${TRAGET_NAME}.elf POST_BUILD
-    COMMAND ${CMAKE_C_COMPILER}  -w -Os -Wl,--gc-sections -mmcu=atmega2560 -o ${LIBRARY_OUTPUT_PATH}/${TRAGET_NAME}.elf -lm ${LIBRARY_OUTPUT_PATH}/lib${TRAGET_NAME}.a -lm ${LIBRARY_OUTPUT_PATH}/libcore.a
+  add_custom_command(TARGET ${TARGET_NAME}.elf POST_BUILD
+    COMMAND ${CMAKE_CXX_COMPILER}  -w -Os -Wl,--gc-sections -mmcu=${ARDUINO_MEGA_MCU} -o ${LIBRARY_OUTPUT_PATH}/${TARGET_NAME}.elf 
+             -L${LIBRARY_OUTPUT_PATH} -l${TARGET_NAME} -lm -lcore -l${TARGET_LIBS}
   )
   
 
-  add_custom_target(${TRAGET_NAME}.hex)
-  add_dependencies(${TRAGET_NAME}.hex ${TRAGET_NAME}.elf)
+  add_custom_target(${TARGET_NAME}.hex)
+  add_dependencies(${TARGET_NAME}.hex ${TARGET_NAME}.elf)
 
-  add_custom_command(TARGET ${TRAGET_NAME}.hex POST_BUILD
-      COMMAND ${ARDUINO_MEGA_OBJCOPY} -O ihex -R .eeprom ${LIBRARY_OUTPUT_PATH}/${TRAGET_NAME}.elf ${LIBRARY_OUTPUT_PATH}/${TRAGET_NAME}.hex
+  add_custom_command(TARGET ${TARGET_NAME}.hex POST_BUILD
+      COMMAND ${ARDUINO_MEGA_OBJCOPY} -O ihex -R .eeprom ${LIBRARY_OUTPUT_PATH}/${TARGET_NAME}.elf ${LIBRARY_OUTPUT_PATH}/${TARGET_NAME}.hex
   )
   
-  add_custom_target(${TRAGET_NAME}.upload)
-  add_dependencies(${TRAGET_NAME}.upload ${TRAGET_NAME}.hex)
+  add_custom_target(${TARGET_NAME}.upload)
+  add_dependencies(${TARGET_NAME}.upload ${TARGET_NAME}.hex)
 
-  add_custom_command(TARGET ${TRAGET_NAME}.upload POST_BUILD
-      COMMAND ${ARDUINO_MEGA_AVRDUDE} -C${AVRDUDE_CONFIG} -v -p${ARDUINO_MEGA_MCU} -c${ARDUINO_MEGA_PROTOCOL}  -P${PORT} -b${ARDUINO_MEGA_UPLOAD_SPEED} -D -Uflash:w:${LIBRARY_OUTPUT_PATH}/${TRAGET_NAME}.hex:i
+  add_custom_command(TARGET ${TARGET_NAME}.upload POST_BUILD
+      COMMAND ${ARDUINO_MEGA_AVRDUDE} -C${AVRDUDE_CONFIG} -v -p${ARDUINO_MEGA_MCU} -c${ARDUINO_MEGA_PROTOCOL}  -P${PORT} -b${ARDUINO_MEGA_UPLOAD_SPEED} -D -Uflash:w:${LIBRARY_OUTPUT_PATH}/${TARGET_NAME}.hex:i
   )
 endmacro()
