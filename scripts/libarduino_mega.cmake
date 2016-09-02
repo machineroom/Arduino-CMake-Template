@@ -75,7 +75,7 @@ macro(arduino TRAGET_NAME TRAGET_SOURCE_FILES)
   #add_dependencies(${TRAGET_NAME}.elf core)
   
   
-  add_library(${TRAGET_NAME} STATIC ${ARDUINO_MEGA_CORE_DIR}/main.cpp ${SOURCE_FILES})
+  add_library(${TRAGET_NAME} STATIC ${SOURCE_FILES})
   
   add_custom_target(${TRAGET_NAME}.elf )
   add_dependencies(${TRAGET_NAME}.elf core ${TRAGET_NAME})
