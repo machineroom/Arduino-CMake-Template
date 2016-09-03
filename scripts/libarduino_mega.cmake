@@ -24,13 +24,13 @@ set(CMAKE_ASM_FLAGS "${CMAKE_C_FLAGS}")
 set(ARDUINO_MEGA_LIB_DIR "${ARDUINO_MEGA_ROOT}/hardware/arduino/avr/libraries")
 set(ARDUINO_MEGA_CORE_DIR "${ARDUINO_MEGA_ROOT}/hardware/arduino/avr/cores/arduino")
 set(ARDUINO_MEGA_PINS_DIR "${ARDUINO_MEGA_ROOT}/hardware/arduino/avr/variants/${ARDUINO_MEGA_BOARD}")
-set(ARDUINO_MEGA_PINS_DIR "${ARDUINO_MEGA_ROOT}/hardware/arduino/avr/variants/${ARDUINO_MEGA_BOARD}")
 set(ARDUINO_MEGA_AVR_DIR "${ARDUINO_MEGA_ROOT}/hardware/tools/avr/avr/include")
 set(AVRDUDE_CONFIG "${ARDUINO_MEGA_ROOT}/hardware/tools/avr/etc/avrdude.conf")
 
 include_directories(${ARDUINO_MEGA_PINS_DIR})
 include_directories(${ARDUINO_MEGA_CORE_DIR})
 include_directories(${ARDUINO_MEGA_AVR_DIR})
+include_directories(${ARDUINO_MEGA_LIB_DIR}/SPI/src)
 
 set(ARDUINO_MEGA_SOURCE_FILES
 	${ARDUINO_MEGA_CORE_DIR}/wiring_pulse.S

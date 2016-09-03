@@ -70,6 +70,7 @@ void EthernetClass::begin(IPAddress local_ip, IPAddress dns_server, IPAddress ga
   _dnsServerAddress = dns_server;
 }
 #else
+
 int EthernetClass::begin(uint8_t *mac_address)
 {
   _dhcp = new DhcpClass();

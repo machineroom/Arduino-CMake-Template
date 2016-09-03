@@ -9,6 +9,17 @@
 #include "Arduino.h"
 #include "utility/util.h"
 
+#define DEBUG
+
+void serprint(const char* format, ...) { 
+    char tmp[128];
+    va_list args;
+    va_start (args, format);
+    vsnprintf (tmp, sizeof(tmp), format, args);
+    Serial.print(tmp);
+    va_end (args);
+}
+
 int DhcpClass::beginWithDHCP(uint8_t *mac, unsigned long timeout, unsigned long responseTimeout)
 {
     _dhcpLeaseTime=0;
@@ -46,6 +57,7 @@ int DhcpClass::request_DHCP_lease(){
     _dhcpUdpSocket.stop();
     if (_dhcpUdpSocket.begin(DHCP_CLIENT_PORT) == 0)
     {
+      serprint ("*E* %s %d\n\r",__FUNCTION__,__LINE__);
       // Couldn't get a socket
       return 0;
     }
@@ -63,6 +75,7 @@ int DhcpClass::request_DHCP_lease(){
             _dhcpTransactionId++;
             
             send_DHCP_MESSAGE(DHCP_DISCOVER, ((millis() - startTime) / 1000));
+    //serprint ("%s %d sent DISCOVER\n\r",__FUNCTION__,__LINE__);
             _dhcp_state = STATE_DHCP_DISCOVER;
         }
         else if(_dhcp_state == STATE_DHCP_REREQUEST){
@@ -73,13 +86,16 @@ int DhcpClass::request_DHCP_lease(){
         else if(_dhcp_state == STATE_DHCP_DISCOVER)
         {
             uint32_t respId;
+    //serprint ("%s %d wait for discover response\n\r",__FUNCTION__,__LINE__);
             messageType = parseDHCPResponse(_responseTimeout, respId);
             if(messageType == DHCP_OFFER)
             {
+    //serprint (" %s %d got OFFER\n\r",__FUNCTION__,__LINE__);
                 // We'll use the transaction ID that the offer came with,
                 // rather than the one we were up to
                 _dhcpTransactionId = respId;
                 send_DHCP_MESSAGE(DHCP_REQUEST, ((millis() - startTime) / 1000));
+    //serprint ("%s %d sent REQUEST\n\r",__FUNCTION__,__LINE__);
                 _dhcp_state = STATE_DHCP_REQUEST;
             }
         }
@@ -89,6 +105,7 @@ int DhcpClass::request_DHCP_lease(){
             messageType = parseDHCPResponse(_responseTimeout, respId);
             if(messageType == DHCP_ACK)
             {
+    //serprint ("1%s %d got ACK\n\r",__FUNCTION__,__LINE__);
                 _dhcp_state = STATE_DHCP_LEASED;
                 result = 1;
                 //use default lease time if we didn't get it
@@ -140,6 +157,7 @@ void DhcpClass::send_DHCP_MESSAGE(uint8_t messageType, uint16_t secondsElapsed)
 
     if (-1 == _dhcpUdpSocket.beginPacket(dest_addr, DHCP_SERVER_PORT))
     {
+        serprint ("*E* %s %d\n\r",__FUNCTION__,__LINE__);
         // FIXME Need to return errors
         return;
     }
@@ -261,6 +279,7 @@ uint8_t DhcpClass::parseDHCPResponse(unsigned long responseTimeout, uint32_t& tr
     {
         if((millis() - startTime) > responseTimeout)
         {
+    serprint ("*E* timeout %s %d\n\r",__FUNCTION__,__LINE__);
             return 255;
         }
         delay(50);
@@ -280,6 +299,7 @@ uint8_t DhcpClass::parseDHCPResponse(unsigned long responseTimeout, uint32_t& tr
         }
 
         memcpy(_dhcpLocalIp, fixedMsg.yiaddr, 4);
+//    serprint ("%s %d parse IP = %d %d %d %d\n\r",__FUNCTION__,__LINE__,_dhcpLocalIp[0],_dhcpLocalIp[1],_dhcpLocalIp[2],_dhcpLocalIp[3]);
 
         // Skip to the option part
         // Doing this a byte at a time so we don't have to put a big buffer
