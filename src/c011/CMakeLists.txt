@@ -4,4 +4,4 @@ set(SOURCE_FILES
 )
 include_directories(./)
 
-arduino(c011test ${SOURCE_FILES})
+arduino(c011test ${SOURCE_FILES} WIZ)
