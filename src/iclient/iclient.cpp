@@ -37,10 +37,28 @@ static int16_t blocking_recv(SOCKET s, uint8_t * buf, int16_t len) {
     return recv(s, buf, len);
 }
 
+void w5100int() {
+    uint8_t IR;
+    IR = W5100.readSnIR(1);
+    switch (IR) {
+        case SnIR::CON:
+            print ("W5100 CON\n\r");
+            break;
+        case SnIR::DISCON:
+            print ("W5100 DISCON\n\r");
+            break;
+        case SnIR::RECV:
+            print ("W5100 RECV\n\r");
+            break;
+    }
+    W5100.writeSnIR(1,IR);   // clear int
+}
+
 int main (int argc, char**argv) {
     int rc;
-    uint8_t mac[] = { 0x01, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+    uint8_t mac[] = { 0x00, 0x08, 0xBE, 0xEF, 0xFE, 0xED };
     init();
+    attachInterrupt(0, w5100int, FALLING);
     Serial.begin(9600);
     print("main() enter\n\r");
     EthernetClass eth;
@@ -48,6 +66,10 @@ int main (int argc, char**argv) {
     eth.begin(mac);
     ip_adr = eth.localIP();
     print("DHCP IP = %d.%d.%d.%d\r\n", ip_adr[0], ip_adr[1], ip_adr[2], ip_adr[3]);
+    
+    pinMode(2,INPUT);
+    W5100.writeIMR(0xEF);   // enable global interrupts
+    print("w5100 interrupts enabled\r\n");
     
     SOCKET sock = 1;   //TODO not clear how to manage these. Now that DHCP is done we should have all 4 available?
     uint16_t port = 555;
