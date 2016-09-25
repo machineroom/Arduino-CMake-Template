@@ -49,7 +49,9 @@ void processLinkOpsCmd(void) {
         opened = true;
     } else {
         uint8_t buf[3];
+        print ("wait command\n\r");
         received = recv(SOCK, buf, sizeof(buf));
+        print ("rx = %d\n\r", received);
         if (received >= 0) {
             switch (buf[2]) {
                 case OCMD_CommsSynchronous:
@@ -87,9 +89,16 @@ void processLinkOpsCmd(void) {
                     }
                     print ("\tdone OCMD_Reset\n\r");
                     break;
+                case OCMD_Analyse:
+                    print ("OCMD_Analyse\n\r");
+                    {
+                      char processor_id[4];
+                      received = recv(SOCK, (uint8_t *)processor_id, sizeof(processor_id));
+                    }
+                    print ("\tdone OCMD_Analyse\n\r");
+                    break;
                 case OCMD_WriteLink:
                 case OCMD_ReadLink:
-                case OCMD_Analyse:
                 case OCMD_TestError:
                 case OCMD_Poke16:
                 case OCMD_Poke32:
@@ -137,12 +146,68 @@ void w5100int() {
     } while (IR != 0);
 }
 
+static uint8_t portl_mirror=0x00;
+
+void setl (uint8_t bit) {
+    portl_mirror |= (1<<bit);
+    PORTL = portl_mirror;
+}
+
+void clearl (uint8_t bit) {
+    portl_mirror &= ~(1<<bit);
+    PORTL = portl_mirror;
+}
+
+void c011_reset(void) {
+    _delay_ms(20);
+    print ("c011 reset\n\r");
+    setl(0);        //set reset
+    _delay_ms(1);
+    clearl(0);      //clear reset
+    _delay_ms(10);
+}
+
+void c011_write(uint8_t val) {
+    PORTA = val;
+    setl(1);        // set Ivalid
+}
+
+uint8_t outval=0x55;
+
+void c011_int_iack() {
+    //print ("c011 iack\n\r");
+    //data sent on link
+    clearl(1);      // clear Ivalid
+
+    //<test
+    outval++;
+    c011_write(outval);
+    //test>
+}
+
+void c011_int_qvalid() {
+    //print ("c011 qvalid\n\r");
+    // data received on link
+    setl(2);        // set Qack
+    clearl(2);      // clear Qack
+}
+
 int main (int argc, char**argv) {
     int rc;
     uint8_t mac[] = { 0x00, 0x08, 0xBE, 0xEF, 0xFE, 0xED };
     init();
-    attachInterrupt(0, w5100int, FALLING);
+    //mega mapping: 0=INT4=digital2=w5100 int
+    //              1=INT5
+    //              2=INT0
+    //              3=INT1
+    //              4=INT2
+    //              5=INT3
+    //              6=INT6
+    //              7=INT7
     Serial.begin(9600);
+    attachInterrupt(0/*INT4*/, w5100int, FALLING);
+    attachInterrupt(2/*INT0*/, c011_int_iack, RISING);
+    attachInterrupt(3/*INT1*/, c011_int_qvalid, RISING);
     print("main() enter\n\r");
     EthernetClass eth;
     IPAddress ip_adr; 
@@ -150,9 +215,20 @@ int main (int argc, char**argv) {
     ip_adr = eth.localIP();
     print("DHCP IP = %d.%d.%d.%d\r\n", ip_adr[0], ip_adr[1], ip_adr[2], ip_adr[3]);
     
-    pinMode(2,INPUT);
+    DDRA = 0xFF;    //port A 0:7 output 
+    DDRC = 0x00;    //port C 0:7 input
+    DDRL = 0x07;    //port L 0:2 output 0(reset), 1(IIvalid), 2(Qack)
+
+    pinMode(2,INPUT);   //W5100 interrupt (digital 2, INT4)
+    pinMode(21,INPUT);  //C011 IACK interrupt (digital 21, INT0)
+    pinMode(20,INPUT);  //C011 QVALID interrupt (digital 20, INT1)
     W5100.writeIMR(0xEF);   // enable global interrupts
     print("w5100 interrupts enabled\r\n");
+
+    c011_reset();
+    //<test
+    c011_write(outval);
+    //test>
     
     SOCKET sock = SOCK;   //TODO not clear how to manage these. Now that DHCP is done we should have all 4 available?
     uint16_t port = 555;
