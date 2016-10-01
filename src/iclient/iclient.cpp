@@ -44,39 +44,54 @@ void c011_reset(void) {
 static bool busy=false;
 
 void c011_write(uint8_t val) {
-    print ("c011 write 0x%X\n\r", val);
+    //print ("c011 write 0x%X\n\r", val);
     while (busy) {
         delay(1);
     }
-    print ("c011 write 0x%X after busy wait\n\r", val);
+    //print ("c011 write 0x%X after busy wait\n\r", val);
     PORTA = val;
     busy = true;
     setl(1);        // set Ivalid
 }
 
 void c011_int_iack() {
-    print ("c011 iack\n\r");
+    //print ("c011 iack\n\r");
     //data sent on link
     clearl(1);      // clear Ivalid
     busy = false;
 }
 
-static bool wait=true;
+static uint8_t wait=true;
+
+static uint8_t rxbuf[1024];
+static uint8_t rxbuf_rp=0;
+static uint8_t rxbuf_wp=0;
+
+static uint8_t rxcnt;
 
 void c011_int_qvalid() {
-    print ("c011 qvalid\n\r");
+//    print ("c011 qvalid\n\r");
     // data received on link
+//    wait = false;
+    rxbuf[rxbuf_wp++] = PORTA;
     setl(2);        // set Qack
-    wait = false;
     clearl(2);      // clear Qack
+    rxcnt--;
 }
 
+
 uint8_t c011_read(void) {
-    while (wait) {
+//    print ("c011 read waiting\n\r");
+//    wait = true;
+//    uint8_t ret = PORTA;
+//    print ("c011 read wait done return 0x%X\n\r", ret);
+    if (rxbuf_rp < rxbuf_wp) {
+        return rxbuf[rxbuf_rp++];
+    }
+    while (rxbuf_rp == rxbuf_wp) {
         delay(1);
     }
-    wait = true;
-    return PORTA;
+    return rxbuf[rxbuf_rp++];
 }
 
 uint8_t SOCK=1;
@@ -145,8 +160,9 @@ void processLinkOpsCmd(void) {
                     {
                       char processor_id[4];
                       received = recv(SOCK, (uint8_t *)processor_id, sizeof(processor_id));
-                      setl (3);
-                      clearl (3);
+                      setl (3);     //R=1
+                      delay(50);    //TRHRL
+                      clearl (3);   //R=0
                     }
                     print ("\tdone OCMD_Reset\n\r");
                     break;
@@ -155,13 +171,17 @@ void processLinkOpsCmd(void) {
                     {
                       char processor_id[4];
                       received = recv(SOCK, (uint8_t *)processor_id, sizeof(processor_id));
-                      setl (4);
-                      //clearl (3);
+                      setl (4);     //A=1
+                      delay(10);    //TAHRH
+                      setl (3);     //R=1
+                      delay(50);    //TRHRL
+                      clearl (3);   //R=0
+                      delay(10);    //TRLAL
+                      clearl (4);   //A=0
                     }
                     print ("\tdone OCMD_Analyse\n\r");
                     break;
                 case OCMD_Peek32:
-                    print ("OCMD_Peek32\n\r");
                     {
                         char processor_id[4];
                         received = recv(SOCK, (uint8_t *)processor_id, sizeof(processor_id));
@@ -181,24 +201,39 @@ void processLinkOpsCmd(void) {
                         addr |= address[2];
                         addr <<= 8;
                         addr |= address[3];
-                        print ("OCMD_Peek32 %d @ 0x%X\n\r", length, addr);
-                        c011_write (1);   //transputer control byte = link peek
-                        c011_write (address[0]);
-                        c011_write (address[1]);
-                        c011_write (address[2]);
-                        c011_write (address[3]);
+                        print ("OCMD_Peek32 %d words @ 0x%X\n\r", length, addr);
+                        rxbuf_wp = 0;
+                        int cnt=0;
+                        while (cnt < length) {
+                            rxcnt = 4;
+                            c011_write (1);   //transputer control byte = link peek
+                            c011_write (addr&0x000000FF>>0);
+                            c011_write (addr&0x0000FF00>>8);
+                            c011_write (addr&0x00FF0000>>16);
+                            c011_write (addr&0xFF000000>>24);
+                            //uint8_t bytes[4];
+                            //bytes[0] = c011_read();
+                            //bytes[1] = c011_read();
+                            //bytes[2] = c011_read();
+                            //bytes[3] = c011_read();
+                            //print ("link read = %X %X %X %X\n\r", bytes[0], bytes[1], bytes[2], bytes[3]);
+                            //sent = send(SOCK, bytes, sizeof(bytes));
+                            while (rxcnt > 0) {
+                                delay(1);
+                            }
+                            cnt ++; // reading words
+                            addr += 4;
+                        }
                         OPSPeek32Reply reply;
-                        reply.packet_size = OPSPeek32ReplyBasicSize;
+                        reply.packet_size = (OPSPeek32ReplyBasicSize - 4) + length*4;
                         reply.reply_tag = OREPLY_Peek32;
                         reply.status = STATUS_NOERROR;
-                        reply.processor_id[0] = reply.processor_id[1] = reply.processor_id[2] = reply.processor_id[3] = 0;
+                        reply.processor_id[0] = processor_id[0];
+                        reply.processor_id[1] = processor_id[1];
+                        reply.processor_id[2] = processor_id[2];
+                        reply.processor_id[3] = processor_id[3];
                         sent = send(SOCK, (uint8_t *)&reply, (uint16_t)sizeof(reply));
-                        uint8_t bytes[4];
-                        bytes[0] = c011_read();
-                        bytes[1] = c011_read();
-                        bytes[2] = c011_read();
-                        bytes[3] = c011_read();
-                        sent = send(SOCK, bytes, sizeof(bytes));
+                        sent = send(SOCK, rxbuf, length*4);
                     }
                     print ("\tdone OCMD_Peek32\n\r");
                     break;
@@ -264,7 +299,7 @@ int main (int argc, char**argv) {
     //              6=INT6
     //              7=INT7
     Serial.begin(9600);
-    attachInterrupt(0/*INT4*/, w5100int, FALLING);
+    //attachInterrupt(0/*INT4*/, w5100int, FALLING);
     attachInterrupt(2/*INT0*/, c011_int_iack, RISING);
     attachInterrupt(3/*INT1*/, c011_int_qvalid, RISING);
     print("main() enter\n\r");
@@ -287,8 +322,6 @@ int main (int argc, char**argv) {
     pinMode(21,INPUT);  //C011 IACK interrupt (digital 21, INT0)
     pinMode(20,INPUT);  //C011 QVALID interrupt (digital 20, INT1)
 
-    //DDRD = 0x00;    //port D 0:7 input (INT 0,1 pins)
-
     W5100.writeIMR(0xEF);   // enable global interrupts
     print("w5100 interrupts enabled\r\n");
 
@@ -300,7 +333,14 @@ int main (int argc, char**argv) {
         if (listen(sock) == 1) {
             print ("listening on %d...\n\r", port);
             while (1) {
-                delay(10000);
+//                delay(10000);
+                uint16_t avail;
+                avail = W5100.getRXReceivedSize(SOCK);
+                while (avail > 0) {
+                    processLinkOpsCmd();
+                    avail = W5100.getRXReceivedSize(SOCK);
+                }
+                delay(1);
             }
         } else {
             print ("*E* failed listen()\n\r");
