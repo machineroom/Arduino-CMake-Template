@@ -2,6 +2,7 @@
 
 #include <Ethernet.h>
 #include <socket.h>
+#include <util.h>
 
 #include "opsprot.h"
 #include "opserror.h"
@@ -132,7 +133,7 @@ void processLinkOpsCmd(void) {
                     print ("OCMD_CommsSynchronous\n\r");
                     {
                         OPSCommsSynchronousReply reply;
-                        reply.packet_size = OPSCommsSynchronousReplySize;
+                        reply.packet_size = htons(OPSCommsSynchronousReplySize);
                         reply.reply_tag = OREPLY_CommsSynchronous;
                         reply.status = STATUS_NOERROR;
                         sent = send(SOCK, (uint8_t *)&reply, (uint16_t)sizeof(reply));
@@ -148,7 +149,7 @@ void processLinkOpsCmd(void) {
                     print ("OCMD_Close\n\r");
                     {
                         OPSCloseReply reply;
-                        reply.packet_size = OPSCloseReplySize;
+                        reply.packet_size = htons(OPSCloseReplySize);
                         reply.reply_tag = OREPLY_Close;
                         reply.status = STATUS_NOERROR;
                         sent = send(SOCK, (uint8_t *)&reply, (uint16_t)sizeof(reply));
@@ -225,7 +226,7 @@ void processLinkOpsCmd(void) {
                             addr += 4;
                         }
                         OPSPeek32Reply reply;
-                        reply.packet_size = (OPSPeek32ReplyBasicSize - 4) + length*4;
+                        reply.packet_size = htons(OPSPeek32ReplyBasicSize + length*4);
                         reply.reply_tag = OREPLY_Peek32;
                         reply.status = STATUS_NOERROR;
                         reply.processor_id[0] = processor_id[0];
