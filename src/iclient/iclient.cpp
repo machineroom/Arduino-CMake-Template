@@ -126,9 +126,14 @@ void processLinkOpsCmd(void) {
         uint8_t buf[3];
         print ("wait command\n\r");
         received = recv(SOCK, buf, sizeof(buf));
-        print ("rx = %d\n\r", received);
         if (received >= 0) {
-            switch (buf[2]) {
+            uint8_t tag = buf[2];
+            uint16_t cmd_size;
+            cmd_size = buf[0];
+            cmd_size <<= 8;
+            cmd_size |= buf[1];
+            print ("tag = %d size=%d[0x%X]\n\r", tag, cmd_size, cmd_size);
+            switch (tag) {
                 case OCMD_CommsSynchronous:
                     print ("OCMD_CommsSynchronous\n\r");
                     {
@@ -239,13 +244,42 @@ void processLinkOpsCmd(void) {
                     print ("\tdone OCMD_Peek32\n\r");
                     break;
                 case OCMD_WriteLink:
+                    {
+                        uint8_t timeout[2];
+                        received = recv(SOCK, (uint8_t *)timeout, sizeof(timeout));
+                        uint8_t buf[1024];
+                        uint16_t count;
+                        count = cmd_size - OPSWriteLinkCommandBasicSize;
+                        if (count > sizeof(buf)) {
+                            print ("EEK buffer too small!\n\r");
+                            break;
+                        }
+                        received = recv(SOCK, buf, count);
+                        print ("OCMD_WriteLink write %d bytes\n\r", count);
+                        uint16_t i;
+                        for (i=0; i < count; i++) {
+                            c011_write (buf[i]);
+                        }
+                        OPSWriteLinkReply reply;
+                        reply.packet_size = htons(OPSWriteLinkReplySize);
+                        reply.reply_tag = OREPLY_WriteLink;
+                        reply.status = STATUS_NOERROR;
+                        reply.bytes_written = htons(count);
+                        sent = send(SOCK, (uint8_t *)&reply, (uint16_t)sizeof(reply));
+                    }
+                    print ("\tdone OCMD_WriteLink\n\r");
+                    break;
+                case OCMD_CommsAsynchronous:
+                    print ("OCMD_CommsAsynchronous\n\r");
+                    // no reply
+                    print ("\tdone OCMD_CommsAsynchronous\n\r");
+                    break;
                 case OCMD_ReadLink:
                 case OCMD_TestError:
                 case OCMD_Poke16:
                 case OCMD_Poke32:
                 case OCMD_Peek16:
                 case OCMD_ErrorDetect:
-                case OCMD_CommsAsynchronous:
                 case OCMD_AsyncWrite:
                 case OCMD_Restart:
                 default:
@@ -319,12 +353,12 @@ int main (int argc, char**argv) {
                     //          3: TRAM reset   (D 46)
                     //          4: TRAM analyse (D 45)
 
-    pinMode(2,INPUT);   //W5100 interrupt (digital 2, INT4)
+    //pinMode(2,INPUT);   //W5100 interrupt (digital 2, INT4)
     pinMode(21,INPUT);  //C011 IACK interrupt (digital 21, INT0)
     pinMode(20,INPUT);  //C011 QVALID interrupt (digital 20, INT1)
 
-    W5100.writeIMR(0xEF);   // enable global interrupts
-    print("w5100 interrupts enabled\r\n");
+    //W5100.writeIMR(0xEF);   // enable global interrupts
+    //print("w5100 interrupts enabled\r\n");
 
     c011_reset();
     
@@ -334,7 +368,6 @@ int main (int argc, char**argv) {
         if (listen(sock) == 1) {
             print ("listening on %d...\n\r", port);
             while (1) {
-//                delay(10000);
                 uint16_t avail;
                 avail = W5100.getRXReceivedSize(SOCK);
                 while (avail > 0) {
