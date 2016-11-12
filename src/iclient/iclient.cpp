@@ -7,10 +7,6 @@
 #include "opsprot.h"
 #include "opserror.h"
 
-
-#define USART_BAUDRATE 9600
-#define UBRR_VALUE (((F_CPU / (USART_BAUDRATE * 16UL))) - 1)
-
 void print(const char* format, ...) { 
     char tmp[128];
     va_list args;
@@ -45,18 +41,23 @@ void c011_reset(void) {
 static bool busy=false;
 
 void c011_write(uint8_t val) {
-    //print ("c011 write 0x%X\n\r", val);
-    while (busy) {
-        delay(1);
-    }
     //print ("c011 write 0x%X after busy wait\n\r", val);
     PORTA = val;
     busy = true;
     setl(1);        // set Ivalid
+    int cnt=0;
+    while (busy) {
+        if (cnt++ > 100) {
+            print ("STUCK\n\r");
+            clearl(1);      // clear Ivalid
+            busy = false;
+            break;
+        }
+        delay(1);
+    }
 }
 
-void c011_int_iack() {
-    //print ("c011 iack\n\r");
+void c011_int_iack_high() {
     //data sent on link
     clearl(1);      // clear Ivalid
     busy = false;
@@ -65,37 +66,42 @@ void c011_int_iack() {
 static uint8_t wait=true;
 
 static uint8_t rxbuf[1024];
-static uint8_t rxbuf_rp=0;
-static uint8_t rxbuf_wp=0;
+static uint16_t rxbuf_wp=0;
 
-static uint8_t rxcnt;
+static uint16_t rxcnt;
 
-void c011_int_qvalid() {
-//    print ("c011 qvalid\n\r");
-    // data received on link
-//    wait = false;
-    rxbuf[rxbuf_wp++] = PORTA;
-    setl(2);        // set Qack
-    clearl(2);      // clear Qack
-    rxcnt--;
-}
-
-
-uint8_t c011_read(void) {
-//    print ("c011 read waiting\n\r");
-//    wait = true;
-//    uint8_t ret = PORTA;
-//    print ("c011 read wait done return 0x%X\n\r", ret);
-    if (rxbuf_rp < rxbuf_wp) {
-        return rxbuf[rxbuf_rp++];
-    }
-    while (rxbuf_rp == rxbuf_wp) {
-        delay(1);
-    }
-    return rxbuf[rxbuf_rp++];
-}
+static bool serverIsAsync = false;
 
 uint8_t SOCK=1;
+
+void c011_int_qvalid() {
+    // data received on link
+    uint8_t data = PINC;
+    //if rxcnt==0 then we're not waiting for a sync response
+    if (!serverIsAsync && rxcnt==0) {
+        //unexpected byte from transputer - store it
+        print ("RXa 0x%X\n\r", data);
+        rxbuf[rxbuf_wp++] = data;
+    }
+    else if (serverIsAsync) {
+        //server in Async mode - send data immediately to iserver
+        print ("RXaa 0x%X\n\r", data);
+        OPSMessageEvent ev;
+        ev.packet_size = htons(OPSRequestEventBasicSize+1);
+        ev.event_tag = OEVENT_Message;
+        ev.fatal = 0;
+        ev.string[0] = data;
+        uint16_t sent;
+        sent = send(SOCK, (uint8_t *)&ev, OPSRequestEventBasicSize+1);
+    } else { 
+        print ("RXs 0x%X\n\r", data);
+        rxbuf[rxbuf_wp++] = data;
+        rxcnt--;
+    }
+    // pulse Qack
+    setl(2);        
+    clearl(2);
+}
 
 void processLinkOpsCmd(void) {
     uint16_t received;
@@ -137,6 +143,7 @@ void processLinkOpsCmd(void) {
                 case OCMD_CommsSynchronous:
                     print ("OCMD_CommsSynchronous\n\r");
                     {
+                        serverIsAsync = false;
                         OPSCommsSynchronousReply reply;
                         reply.packet_size = htons(OPSCommsSynchronousReplySize);
                         reply.reply_tag = OREPLY_CommsSynchronous;
@@ -166,9 +173,9 @@ void processLinkOpsCmd(void) {
                     {
                       char processor_id[4];
                       received = recv(SOCK, (uint8_t *)processor_id, sizeof(processor_id));
-                      setl (3);     //R=1
+                      setl (3);     //reset=1
                       delay(50);    //TRHRL
-                      clearl (3);   //R=0
+                      clearl (3);   //reset=0
                     }
                     print ("\tdone OCMD_Reset\n\r");
                     break;
@@ -177,13 +184,13 @@ void processLinkOpsCmd(void) {
                     {
                       char processor_id[4];
                       received = recv(SOCK, (uint8_t *)processor_id, sizeof(processor_id));
-                      setl (4);     //A=1
+                      setl (4);     //analyse=1
                       delay(10);    //TAHRH
-                      setl (3);     //R=1
+                      setl (3);     //reset=1
                       delay(50);    //TRHRL
-                      clearl (3);   //R=0
+                      clearl (3);   //reset=0
                       delay(10);    //TRLAL
-                      clearl (4);   //A=0
+                      clearl (4);   //analyse=0
                     }
                     print ("\tdone OCMD_Analyse\n\r");
                     break;
@@ -217,13 +224,6 @@ void processLinkOpsCmd(void) {
                             c011_write (addr&0x0000FF00>>8);
                             c011_write (addr&0x00FF0000>>16);
                             c011_write (addr&0xFF000000>>24);
-                            //uint8_t bytes[4];
-                            //bytes[0] = c011_read();
-                            //bytes[1] = c011_read();
-                            //bytes[2] = c011_read();
-                            //bytes[3] = c011_read();
-                            //print ("link read = %X %X %X %X\n\r", bytes[0], bytes[1], bytes[2], bytes[3]);
-                            //sent = send(SOCK, bytes, sizeof(bytes));
                             while (rxcnt > 0) {
                                 delay(1);
                             }
@@ -246,6 +246,7 @@ void processLinkOpsCmd(void) {
                 case OCMD_WriteLink:
                     {
                         uint8_t timeout[2];
+                        //read (and ignore) timeout
                         received = recv(SOCK, (uint8_t *)timeout, sizeof(timeout));
                         uint8_t buf[1024];
                         uint16_t count;
@@ -255,16 +256,22 @@ void processLinkOpsCmd(void) {
                             break;
                         }
                         received = recv(SOCK, buf, count);
-                        print ("OCMD_WriteLink write %d bytes\n\r", count);
-                        uint16_t i;
-                        for (i=0; i < count; i++) {
-                            c011_write (buf[i]);
-                        }
                         OPSWriteLinkReply reply;
                         reply.packet_size = htons(OPSWriteLinkReplySize);
                         reply.reply_tag = OREPLY_WriteLink;
-                        reply.status = STATUS_NOERROR;
-                        reply.bytes_written = htons(count);
+                        if (received > 0) {
+                            uint16_t i;
+                            for (i=0; i < received; i++) {
+                        //print ("w %d\n\r", i);
+                                c011_write (buf[i]);
+                            }
+                            reply.status = STATUS_NOERROR;
+                            reply.bytes_written = htons(received);
+                        } else {
+                            print ("OCMD_WriteLink recv() error\n\r");
+                            reply.status = STATUS_COMMS_FATAL;
+                            reply.bytes_written = htons(0);
+                        }
                         sent = send(SOCK, (uint8_t *)&reply, (uint16_t)sizeof(reply));
                     }
                     print ("\tdone OCMD_WriteLink\n\r");
@@ -272,6 +279,17 @@ void processLinkOpsCmd(void) {
                 case OCMD_CommsAsynchronous:
                     print ("OCMD_CommsAsynchronous\n\r");
                     // no reply
+                    serverIsAsync = true;
+                    if (rxbuf_wp > 0) {
+                        OPSMessageEvent ev;
+                        ev.packet_size = htons(OPSRequestEventBasicSize+rxbuf_wp);
+                        ev.event_tag = OEVENT_Message;
+                        ev.fatal = 0;
+                        memcpy (ev.string, rxbuf, rxbuf_wp);
+                        uint16_t sent;
+                        sent = send(SOCK, (uint8_t *)&ev, OPSRequestEventBasicSize+rxbuf_wp);
+                        rxbuf_wp = 0;
+                    }
                     print ("\tdone OCMD_CommsAsynchronous\n\r");
                     break;
                 case OCMD_ReadLink:
@@ -335,7 +353,7 @@ int main (int argc, char**argv) {
     //              7=INT7
     Serial.begin(9600);
     //attachInterrupt(0/*INT4*/, w5100int, FALLING);
-    attachInterrupt(2/*INT0*/, c011_int_iack, RISING);
+    attachInterrupt(2/*INT0*/, c011_int_iack_high, RISING);
     attachInterrupt(3/*INT1*/, c011_int_qvalid, RISING);
     print("main() enter\n\r");
     EthernetClass eth;
